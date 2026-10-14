@@ -1,0 +1,47 @@
+MIT License
+
+Copyright (c) 2026 yiten5885-a11y
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+关于原始资料 / About the source material
+
+本仓库中的结构化方剂记录整理自《妙用偏方秘方》（易磊 主编）。原书著作权
+归原作者及出版方所有，本仓库不含原始 PDF、整页扫描图像或行级全文转录，
+仅包含为检索与安全提示目的整理的结构化字段。
+
+The structured formula records in this repository are derived from the book
+《妙用偏方秘方》 (editor: 易磊). Copyright in the book remains with its author
+and publisher. This repository does not contain the original PDF, page images,
+or line-level full-text transcription; it contains only structured fields
+prepared for retrieval and safety annotation.
+
+---
+
+医疗免责 / Medical disclaimer
+
+本项目为资料整理工具，不提供医疗建议、诊断或处方。任何身体不适请咨询执业
+医师或药师。来源转录核对不代表临床有效性或安全性评价。
+
+This project is a reference-organisation tool. It does not provide medical
+advice, diagnosis, or prescriptions. Consult a licensed physician or pharmacist
+for any health concern. Source-transcription checking is not a clinical
+efficacy or safety evaluation.
