@@ -6,6 +6,24 @@
 
 内容属于资料参考与辅助信息，**不构成诊断、处方、疗效承诺或用药指导**。
 
+## 获取方式
+
+| 渠道 | 地址 |
+| --- | --- |
+| SkillHub 技能市场 | https://skillhub.cn/skills/miaoyong-pianfang-mifang |
+| GitHub 仓库 | https://github.com/yiten5885-a11y/miaoyong-pianfang-mifang |
+
+```bash
+# 方式一：SkillHub CLI
+curl -fsSL https://skillhub.cn/install/install.sh | bash -s -- --cli-only
+skillhub install miaoyong-pianfang-mifang
+
+# 方式二：直接放进本地技能目录
+git clone https://github.com/yiten5885-a11y/miaoyong-pianfang-mifang \
+  ~/.workbuddy-ai/skills/miaoyong-pianfang-mifang
+```
+
+
 ## 这个仓库公开了什么
 
 - 可运行的 Skill 指令（`SKILL.md`）、检索/编排/安全代码（`scripts/`）与规则文档（`references/`）。
@@ -59,6 +77,11 @@ python3 scripts/search.py --stats
 
 # 自检
 python3 -m unittest discover -s tests -p 'test_*.py'
+
+# 发布到 SkillHub（需要个人 API Token）
+export SKILLHUB_KEY=skh_xxx
+python3 scripts/publish_skillhub.py --dir . --dry-run
+python3 scripts/publish_skillhub.py --dir . --changelog "本次变更说明"
 ```
 
 仅依赖 Python 3.9+ 标准库。

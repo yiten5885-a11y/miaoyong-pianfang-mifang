@@ -81,7 +81,51 @@ python3 scripts/format_answer.py --query "便血" --fields title,book_page
 
 ## 版本
 
+- `1.0.1`：补充 SkillHub 发布工具与封面图标；上架 SkillHub。
 - `1.0.0`：首次发布。406 页全量 OCR，2395 条结构化记录，8 章 225 病症。
+
+## 发布到 SkillHub
+
+已上架：https://skillhub.cn/skills/miaoyong-pianfang-mifang
+（canonical name `@user_a007d674/miaoyong-pianfang-mifang`）
+
+### 用官方 CLI
+
+```bash
+curl -fsSL https://skillhub.cn/install/install.sh | bash -s -- --cli-only
+skillhub login --key "$SKILLHUB_KEY" --host https://api.skillhub.cn
+skillhub publish . --host https://api.skillhub.cn --dry-run
+skillhub publish . --host https://api.skillhub.cn --changelog "本次变更"
+```
+
+### 用本仓库的发布工具（支持上传图标）
+
+官方 CLI 不会上传技能头像（无 `iconUrl` 时用默认占位图），且会打包 `data/`
+目录。`scripts/publish_skillhub.py` 补上了这两点：
+
+```bash
+export SKILLHUB_KEY=skh_xxx          # 个人中心 → API keys
+python3 scripts/publish_skillhub.py --dir . --dry-run
+python3 scripts/publish_skillhub.py --dir . --changelog "本次变更"
+```
+
+### 发布链路要点（实测）
+
+- 端点：`POST https://api.skillhub.cn/api/v1/community/skills/publish`，鉴权
+  `Authorization: Bearer skh_...`。
+- 请求体是 multipart：`payload` 必须是**无 filename 的表单字段**（带上
+  filename 会报「缺少 payload 字段」），文件用重复的 `files` 字段，其
+  filename 即相对路径。
+- `payload` 字段：`slug` / `displayName` / `version` / `summaryZh` /
+  `changelog` / `iconUrl` / `category` / `subCategories`。
+- 图标另走 `POST /api/v1/community/skill-icons/upload`（字段 `file`），返回
+  `iconUrl` 后再带进 `payload`。
+- **服务端按扩展名允许列表校验**：`LICENSE`（无扩展名）会直接 400
+  「不允许的文件类型」；图片也不允许进包，只能作为 `iconUrl`。
+- 包体上限 10 MB；`slug` 全网唯一且 kebab-case；同一版本号重复发布会 409，
+  必须升版本。
+- 发布后进入审核：`reviewStatus` / `contentAuditStatus` / `iconAuditStatus` /
+  `securityScanStatus` 均为 `pending`，通过后公开详情页才显示版本与图标。
 
 ## 升级与卸载
 
