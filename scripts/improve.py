@@ -214,7 +214,9 @@ def compose(issue: str, records: list[dict], limit: int = 3,
         return {
             "mode": "no_match",
             "issue": issue,
-            "message": "原书目录中没有与该描述直接对应的条目。",
+            "message": "没能在原书目录里找到与这段描述直接对应的病症条目。"
+                       "下面几个方向可能更接近，你挑一个我再给方子。",
+            "suggestions": payload.get("suggestions", []),
             "available_conditions": payload["available_conditions"],
             "results": [],
         }

@@ -56,6 +56,7 @@ OCR_FIXES = [
     ("硏", "研"),          # 硏末 -> 研末
     ("壽", "痔"),
     ("寿疮", "痔疮"),
+    ("特疮", "痔疮"),
     ("尊麻疹", "荨麻疹"),
     ("脸缘炎", "睑缘炎"),
     ("人荸荠", "入荸荠"),
@@ -140,6 +141,10 @@ SECTION_RE = re.compile(
     r"^[" + CN_DIGITS + r"]{1,4}\s*[、.．,，]\s*(.+?)\s*$"
 )
 CHAPTER_RE = re.compile(r"^第\s*([" + CN_DIGITS + r"]{1,4})\s*章\s*(.*)$")
+# Tolerant form used for detection and name extraction: Vision misreads both the
+# numeral (二 -> 三) and the 章 glyph (章 -> 童), so neither is required to be
+# exact. The chapter name carries the real signal.
+CHAPTER_LOOSE_RE = re.compile(r"^第[^\s]{0,3}[章童竟]\s*(.*)$")
 PAGENO_RE = re.compile(r"^妙用偏方秘方[「『\[\(]?\s*([0-9０-９]{1,4})\s*$")
 # A bare number sitting on its own in the footer band.
 BARE_PAGENO_RE = re.compile(r"^([0-9０-９]{1,4})$")
@@ -294,7 +299,7 @@ def page_lines(page: dict) -> tuple[list[dict], str, int | None]:
         if not parts:
             continue
         joined = normalize("".join(i["text"] for i in parts))
-        if CHAPTER_RE.match(joined):
+        if CHAPTER_LOOSE_RE.match(joined):
             chapter = clean_chapter(joined)
     return body, chapter, book_page
 
@@ -317,9 +322,8 @@ def parse_toc(pages: dict[int, dict]) -> dict[int, list[str]]:
         body, _, _ = page_lines(pages[page_no])
         for line in sorted(body, key=lambda item: (-item["y"], item["x"])):
             text = normalize(line["text"])
-            chapter_match = CHAPTER_RE.match(text)
-            if chapter_match:
-                chapter_no = cn_to_int(chapter_match.group(1))
+            if CHAPTER_LOOSE_RE.match(text):
+                chapter_no = chapter_no_of(clean_chapter(text))
                 if chapter_no is not None:
                     toc.setdefault(chapter_no, [])
                 continue
@@ -332,15 +336,50 @@ def parse_toc(pages: dict[int, dict]) -> dict[int, list[str]]:
 
 
 def clean_chapter(text: str) -> str:
-    """Normalise a chapter heading and drop OCR debris around it."""
-    match = CHAPTER_RE.match(normalize(text))
-    if not match:
+    """Normalise a chapter heading, trusting the *name* over the numeral.
+
+    The footer numeral is unreliable in both directions: Vision reads 第二章 as
+    "第三章" on some pages, and the 章 glyph itself is misread as 童. Mapping the
+    numeral through CANONICAL_CHAPTERS then yields a confidently wrong chapter
+    ("第三章外科" -> "第三章 男科病"). The chapter *name* is far more stable, so
+    it is matched first and the numeral is only used when the name is unusable.
+    """
+    loose = CHAPTER_LOOSE_RE.match(normalize(text))
+    if not loose:
         return text
-    number = cn_to_int(match.group(1))
+    ocr_name = "".join(ch for ch in loose.group(1) if "\u4e00" <= ch <= "\u9fff")
+
+    canonical_names = list(CANONICAL_CHAPTERS.values())
+    if ocr_name in canonical_names:
+        number = _chapter_number(ocr_name)
+        return f"第{int_to_cn(number)}章 {ocr_name}"
+
+    close = difflib.get_close_matches(ocr_name, canonical_names, n=1, cutoff=0.6)
+    if close:
+        number = _chapter_number(close[0])
+        return f"第{int_to_cn(number)}章 {close[0]}"
+
+    number = cn_to_int(loose.group(0).split("章")[0].replace("第", "").strip())
     if number in CANONICAL_CHAPTERS:
-        return f"第{match.group(1)}章 {CANONICAL_CHAPTERS[number]}"
-    name = "".join(ch for ch in match.group(2) if "\u4e00" <= ch <= "\u9fff")
-    return f"第{match.group(1)}章 {name}".strip()
+        return f"第{int_to_cn(number)}章 {CANONICAL_CHAPTERS[number]}"
+
+    # Neither the name nor the numeral resolved. Returning "" makes the caller
+    # carry the previous chapter forward, which is correct: a chapter spans
+    # many pages, so one unreadable footer must not invent a new chapter.
+    return ""
+
+
+def _chapter_number(canonical_name: str) -> int:
+    for number, name in CANONICAL_CHAPTERS.items():
+        if name == canonical_name:
+            return number
+    return 0
+
+
+def chapter_no_of(chapter: str) -> int | None:
+    """Derive the chapter number from a normalised chapter string."""
+    name = chapter.split("章", 1)[-1].strip()
+    return _chapter_number(name) or None
 
 
 def join_same_baseline(lines: list[dict], tolerance: float = 0.008,
@@ -419,7 +458,7 @@ def merge_lines(lines: list[dict]) -> list[dict]:
         )
         centred = line["x"] > 0.25 and abs(line["x"] + line["w"] / 2 - 0.5) < 0.16
         is_section = bool(
-            SECTION_RE.match(text) and line["h"] >= 0.024 and line["x"] > 0.20
+            SECTION_RE.match(text) and line["h"] >= 0.023 and line["x"] > 0.20
         )
         is_heading = centred or is_section
 
@@ -483,6 +522,33 @@ def snap_condition(name: str, canonical: list[str]) -> str:
     return match[0] if match else name
 
 
+def resolve_section(name: str, listed: list[str], cursor: int,
+                    report: list[str], page_no: int) -> tuple[str, int]:
+    """Resolve a body section heading against the chapter's contents list.
+
+    Vision sometimes drops a glyph from a heading — 七四、癔病 comes through as
+    "七四、 病" — leaving a one-character name that cannot be matched by string
+    similarity. The contents list is the book's own section order, so when a
+    heading is unreadable the next unvisited entry is the correct answer.
+
+    Returns (section_name, new_cursor).
+    """
+    if not listed:
+        return (name, cursor) if len(name) > 1 else (name, cursor)
+
+    snapped = snap_condition(name, listed)
+    if snapped != name or name in listed:
+        return snapped, listed.index(snapped)
+
+    if len(name) < 2:
+        nxt = min(cursor + 1, len(listed) - 1)
+        report.append(
+            f"p{page_no} 标题不可辨 {name!r} -> 按目录顺序取 {listed[nxt]!r}")
+        return listed[nxt], nxt
+
+    return name, cursor
+
+
 def parse_pages(pages: dict[int, dict], toc: dict[int, list[str]] | None = None
                 ) -> tuple[list[dict], list[str], dict[int, int]]:
     toc = toc or {}
@@ -494,6 +560,7 @@ def parse_pages(pages: dict[int, dict], toc: dict[int, list[str]] | None = None
     chapter_no = None
     section = ""
     section_no = None
+    toc_cursor = -1
     current: dict | None = None
     counter = 0
 
@@ -522,12 +589,15 @@ def parse_pages(pages: dict[int, dict], toc: dict[int, list[str]] | None = None
             if footer_chapter:
                 started = True
                 chapter = footer_chapter
-                chapter_no = cn_to_int(CHAPTER_RE.match(footer_chapter).group(1))
+                chapter_no = chapter_no_of(footer_chapter)
+                toc_cursor = -1
             else:
                 continue  # cover / TOC / preface
         elif footer_chapter:
+            if footer_chapter != chapter:
+                toc_cursor = -1  # a new chapter restarts the contents order
             chapter = footer_chapter
-            chapter_no = cn_to_int(CHAPTER_RE.match(footer_chapter).group(1))
+            chapter_no = chapter_no_of(footer_chapter)
 
         for line in merge_lines(body):
             text = line["text"]
@@ -562,11 +632,13 @@ def parse_pages(pages: dict[int, dict], toc: dict[int, list[str]] | None = None
             # type size than the body text. They close the running formula.
             if text and not text.startswith("【"):
                 section_match = SECTION_RE.match(text)
-                if section_match and line["h"] >= 0.024 and line["x"] > 0.20:
+                if section_match and line["h"] >= 0.023 and line["x"] > 0.20:
                     name = clean_condition(text)
-                    if 1 < len(name) <= 22:
+                    if len(name) <= 22:
                         close()
-                        section = snap_condition(name, toc.get(chapter_no or 0, []))
+                        listed = toc.get(chapter_no or 0, [])
+                        section, toc_cursor = resolve_section(
+                            name, listed, toc_cursor, report, page_no)
                         section_no = text.split("、")[0].split(".")[0].strip()
                         continue
 

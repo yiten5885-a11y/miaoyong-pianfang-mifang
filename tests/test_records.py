@@ -26,7 +26,7 @@ from improve import build_shopping_list, build_steps, compose, split_ingredients
 EXPECTED = {
     "records": 2395,
     "chapters": 8,
-    "conditions": 225,
+    "conditions": 232,
     "offset": 10,
     "all_three_fields": 2369,
 }
@@ -49,6 +49,34 @@ class TestRecords(unittest.TestCase):
     def test_condition_count(self) -> None:
         self.assertEqual(len({r["condition"] for r in self.records}),
                          EXPECTED["conditions"])
+
+    def test_no_garbage_chapter_names(self) -> None:
+        """Every chapter must be one of the book's eight, spelled correctly."""
+        canonical = {"第一章 内科", "第二章 外科", "第三章 男科病",
+                     "第四章 妇科病", "第五章 小儿科疾病", "第六章 五官科",
+                     "第七章 皮肤科", "第八章 美容"}
+        self.assertEqual({r["chapter"] for r in self.records}, canonical)
+
+    def test_sections_span_at_most_one_chapter(self) -> None:
+        """A condition belongs to one chapter; drift means a lost heading."""
+        import collections
+        by_condition = collections.defaultdict(collections.Counter)
+        for record in self.records:
+            by_condition[record["condition"]][record["chapter"]] += 1
+        drifted = sum(
+            1 for r in self.records
+            if r["chapter"] != by_condition[r["condition"]].most_common(1)[0][0]
+        )
+        # A handful of genuine cross-boundary pages are expected; a jump back
+        # to double digits means the heading detection regressed.
+        self.assertLess(drifted, 60, f"{drifted} records carry a foreign chapter")
+
+    def test_previously_lost_sections_are_present(self) -> None:
+        """These six headings were dropped by an over-tight font threshold."""
+        conditions = {r["condition"] for r in self.records}
+        for name in ("便血", "浮肿、腹水", "麦粒肿", "牙痛", "湿疹",
+                     "减肥轻身", "癔病"):
+            self.assertIn(name, conditions)
 
     def test_all_three_fields(self) -> None:
         complete = sum(

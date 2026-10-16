@@ -32,7 +32,8 @@ miaoyong-pianfang-mifang/
 │   └── publish_skillhub.py   SkillHub 发布工具（支持图标）
 └── tests/
     ├── test_records.py       数据结构自检
-    └── test_profile.py       档案与闸门自检
+    ├── test_profile.py       档案与闸门自检
+    └── test_retrieval.py     检索回归（25 条真实口语用例）
 ```
 
 ## 从原始 PDF 重建
@@ -62,6 +63,8 @@ python3 -m unittest discover -s tests -p 'test_*.py'
 | 目录条目 | 230 |
 | 前序偏移 | 10 |
 | 三字段齐全 | 2369 |
+| 口语映射 | 232/232 病症，546 条短语 |
+| 口语回归命中 | ≥22/25 |
 
 ## 常用自检
 
@@ -72,6 +75,17 @@ python3 scripts/search.py --query "咳嗽痰多" --limit 3
 python3 scripts/improve.py --issue "老便秘，三四天一次"
 python3 scripts/format_answer.py --query "便血" --fields title,book_page
 ```
+
+## 修改检索
+
+- 口语映射：`scripts/search.py` 的 `SYNONYMS`。新增后必须跑
+  `python3 -m unittest tests.test_retrieval` —— 它会校验**没有死映射**
+  （目标病症必须真实存在）且**每个病症都可到达**。
+- 模糊匹配容差：同文件 `fuzzy_contains`，当前允许短语长度以内的填充字符。
+- 儿科语境词：`CHILD_MARKERS`，用于把 `小儿*` 小节与成人同名小节区分开。
+- 建议算法：`suggest_conditions`，要求病症名有 2 字重叠，或正文重叠 ≥3，
+  避免单字噪声产生离谱建议。
+- 新增真实口语用例时，直接加进 `tests/test_retrieval.py` 的 `CASES`。
 
 ## 修改风险词库
 
@@ -85,6 +99,10 @@ python3 scripts/format_answer.py --query "便血" --fields title,book_page
 
 ## 版本
 
+- `1.2.0`：检索可信度。取消 `run_search` 的静默兜底，新增 `no_match` 模式与候选建议；
+  口语映射扩到 232/232 病症（546 条，0 死映射），加模糊匹配与儿科语境加权；
+  修复 6 个整节丢失的病症（字号阈值 0.024 → 0.023）与 4.1% 的章节错标；
+  新增 `tests/test_retrieval.py`（25 条真实口语回归集）。
 - `1.1.0`：S3 个人用药档案与相互作用闸门。新增 `scripts/interactions.py`（四类规则）、
   `scripts/profile.py`（本地档案读写与 CLI）、`tests/test_profile.py`（28 项）；
   `improve.py` 增加闸门与自动换方；`--profile-json` / `--no-profile` 参数。
