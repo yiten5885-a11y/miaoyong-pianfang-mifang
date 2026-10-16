@@ -30,6 +30,9 @@ from pathlib import Path
 
 SKILL_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SKILL_ROOT / "scripts"))
+from interactions import evaluate as evaluate_interactions  # noqa: E402
+from interactions import worst_level as interaction_worst  # noqa: E402
+from profile import load_profile, summary_payload  # noqa: E402
 from safety import (  # noqa: E402
     RED_FLAGS, scan_emergency, scan_herbs, scan_red_flags, scan_serious,
     worst_level,
@@ -153,6 +156,21 @@ def build_steps(usage: str) -> list[dict]:
     return steps or [{"label": "制用法（原书原文）", "text": usage}]
 
 
+def display_title(record: dict) -> str:
+    """A label that is always readable.
+
+    180 of the 2395 entries have no name in the book — the ingredient list
+    starts straight after the formula number. Showing an empty title would
+    make the entry impossible to refer to, so it is labelled by position and
+    the absence is stated rather than invented.
+    """
+    title = (record.get("title") or "").strip()
+    if title:
+        return title
+    condition = (record.get("condition") or "未归类").strip()
+    return f"{condition}·第{record.get('formula_no')}方（原书未列方名）"
+
+
 def risk_tier(record: dict, serious_note: str | None,
               flags: list[str]) -> dict:
     herbs = scan_herbs(f"{record.get('ingredients', '')} {record.get('usage', '')}")
@@ -172,9 +190,12 @@ def risk_tier(record: dict, serious_note: str | None,
     return {"colour": colour, "reason": reason, "herbs": herbs}
 
 
-def compose(issue: str, records: list[dict], limit: int = 3) -> dict:
+def compose(issue: str, records: list[dict], limit: int = 3,
+            profile: dict | None = None) -> dict:
     emergency = scan_emergency(issue)
     flags = scan_red_flags(issue)
+    if profile is None:
+        profile = load_profile()
 
     if emergency:
         return {
@@ -198,20 +219,92 @@ def compose(issue: str, records: list[dict], limit: int = 3) -> dict:
             "results": [],
         }
 
-    primary = results[0]
+    # ---- personal gate -----------------------------------------------------
+    # Every candidate is run past the user's own profile before one is picked.
+    # A blocked candidate is never silently dropped: the reason is carried into
+    # the card so the user can see why it was skipped.
+    allergies = [a for a in (profile.get("allergies") or []) if a]
+    gated: list[dict] = []
+    for index, item in enumerate(results):
+        text = f"{item.get('ingredients') or ''} {item.get('usage') or ''}"
+        hits = evaluate_interactions(text, profile,
+                                     usage_text=item.get("usage") or "")
+        allergy_hits = [a for a in allergies if a in text]
+        if allergy_hits:
+            hits = [{
+                "id": "allergy",
+                "level": "block",
+                "herbs": allergy_hits,
+                "trigger_kind": "allergies",
+                "trigger": allergy_hits[0],
+                "reason": f"原料中含有你登记的过敏原：{'、'.join(allergy_hits)}。",
+                "action": "换一道不含该原料的方。",
+            }] + hits
+        gated.append({"item": item, "hits": hits,
+                      "level": interaction_worst(hits), "rank": index})
+
+    allowed = [g for g in gated if g["level"] != "block"]
+    blocked = [g for g in gated if g["level"] == "block"]
+
+    if not allowed:
+        return {
+            "mode": "all_blocked",
+            "issue": issue,
+            "matched_conditions": payload["matched_conditions"],
+            "profile": summary_payload(profile),
+            "message": "这一节里能匹配到的方子，都与你登记的情况存在冲突，"
+                       "本次不给出可自行使用的方案。",
+            "blocked": [
+                {
+                    "id": g["item"]["id"],
+                    "title": display_title(g["item"]),
+                    "condition": g["item"]["condition"],
+                    "reasons": [h["reason"] for h in g["hits"]],
+                    "actions": [h["action"] for h in g["hits"]],
+                }
+                for g in blocked
+            ],
+            "next_step": "请带着下面这些方名和原料去问药师或医师，"
+                         "由他们判断是否可以调整或替换。",
+        }
+
+    chosen = allowed[0]
+    primary = chosen["item"]
     serious_note = scan_serious(primary.get("condition") or "")
     tier = risk_tier(primary, serious_note, flags)
+    if chosen["level"] == "warn":
+        tier = {
+            "colour": "yellow",
+            "reason": "与你登记的情况存在需要注意的相互作用，见 profile_gate。",
+            "herbs": tier.get("herbs", []),
+        }
 
     card = {
         "mode": "remedy",
         "issue": issue,
         "matched_conditions": payload["matched_conditions"],
+        "profile": summary_payload(profile),
+        "profile_gate": {
+            "switched": bool(blocked),
+            "switched_from": [g["item"]["title"] for g in blocked],
+            "primary_interactions": chosen["hits"],
+            "blocked": [
+                {
+                    "id": g["item"]["id"],
+                    "title": display_title(g["item"]),
+                    "condition": g["item"]["condition"],
+                    "reasons": [h["reason"] for h in g["hits"]],
+                    "actions": [h["action"] for h in g["hits"]],
+                }
+                for g in blocked
+            ],
+        },
         "primary": {
             "id": primary["id"],
             "condition": primary["condition"],
             "condition_no": primary["condition_no"],
             "chapter": primary["chapter"],
-            "title": primary["title"],
+            "title": display_title(primary),
             "name": primary["name"],
             "original_ingredients": primary["ingredients"],
             "original_usage": primary["usage"],
@@ -224,17 +317,18 @@ def compose(issue: str, records: list[dict], limit: int = 3) -> dict:
         },
         "alternatives": [
             {
-                "id": item["id"],
-                "condition": item["condition"],
-                "title": item["title"],
-                "name": item["name"],
-                "original_ingredients": item["ingredients"],
-                "original_usage": item["usage"],
-                "original_effect": item["effect"],
-                "risk_level": item["risk_level"],
-                "source_refs": item["source_refs"],
+                "id": g["item"]["id"],
+                "condition": g["item"]["condition"],
+                "title": g["item"]["title"],
+                "name": g["item"]["name"],
+                "original_ingredients": g["item"]["ingredients"],
+                "original_usage": g["item"]["usage"],
+                "original_effect": g["item"]["effect"],
+                "risk_level": g["item"]["risk_level"],
+                "interactions": g["hits"],
+                "source_refs": g["item"]["source_refs"],
             }
-            for item in results[1:]
+            for g in allowed[1:]
         ],
         "safety": {
             "tier": tier,
@@ -269,10 +363,29 @@ def main() -> None:
     parser.add_argument("--issue", required=True)
     parser.add_argument("--limit", type=int, default=3)
     parser.add_argument("--records", default=str(SKILL_ROOT / "assets" / "records.jsonl"))
+    parser.add_argument("--profile-json", default=None,
+                        help="用一段 JSON 覆盖本地档案（不写盘）")
+    parser.add_argument("--no-profile", action="store_true",
+                        help="忽略本地档案，只走通用规则")
     args = parser.parse_args()
 
     records = load_records(Path(args.records))
-    card = compose(args.issue, records, args.limit)
+    if args.no_profile:
+        profile = {"conditions": [], "medications": [], "allergies": [],
+                   "special": [], "diet": []}
+    elif args.profile_json:
+        try:
+            profile = json.loads(args.profile_json)
+        except json.JSONDecodeError as exc:
+            raise SystemExit(f"--profile-json 解析失败: {exc}")
+        profile.setdefault("conditions", [])
+        profile.setdefault("medications", [])
+        profile.setdefault("allergies", [])
+        profile.setdefault("special", [])
+        profile.setdefault("diet", [])
+    else:
+        profile = None
+    card = compose(args.issue, records, args.limit, profile)
     print(json.dumps(card, ensure_ascii=False, indent=2))
 
 

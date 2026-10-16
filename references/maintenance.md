@@ -24,11 +24,15 @@ miaoyong-pianfang-mifang/
 │   ├── run_ocr.sh            并行 OCR 驱动
 │   ├── build_records.py      OCR → records.jsonl / toc.json
 │   ├── safety.py             风险词库与安全判定
+│   ├── interactions.py       药材×药物×疾病×特殊状态相互作用规则表
+│   ├── profile.py            本地个人用药档案（读写 + CLI）
 │   ├── search.py             确定性检索
-│   ├── improve.py            回答编排（查方 + 用法整理）
-│   └── format_answer.py      来源追溯模式
+│   ├── improve.py            回答编排（查方 + 用法整理 + 档案闸门）
+│   ├── format_answer.py      来源追溯模式
+│   └── publish_skillhub.py   SkillHub 发布工具（支持图标）
 └── tests/
-    └── test_records.py       结构自检
+    ├── test_records.py       数据结构自检
+    └── test_profile.py       档案与闸门自检
 ```
 
 ## 从原始 PDF 重建
@@ -81,8 +85,21 @@ python3 scripts/format_answer.py --query "便血" --fields title,book_page
 
 ## 版本
 
+- `1.1.0`：S3 个人用药档案与相互作用闸门。新增 `scripts/interactions.py`（四类规则）、
+  `scripts/profile.py`（本地档案读写与 CLI）、`tests/test_profile.py`（28 项）；
+  `improve.py` 增加闸门与自动换方；`--profile-json` / `--no-profile` 参数。
+- `1.0.2`：补充获取方式与发布文档；新增 SkillHub 直连发布工具。
 - `1.0.1`：补充 SkillHub 发布工具与封面图标；上架 SkillHub。
 - `1.0.0`：首次发布。406 页全量 OCR，2395 条结构化记录，8 章 225 病症。
+
+## 修改相互作用规则
+
+- 规则表：`scripts/interactions.py` 的 `INTERACTION_RULES`，每条必须含 `id` / `herbs` /
+  `triggers` / `level` / `reason` / `action`，测试会校验完整性。
+- 药物词表：同文件 `DRUG_CLASSES`，按子串匹配，商品名与通用名都加进去。
+- 同名遮蔽：`SHADOWING_NAMES`，用于「麻黄根 ≠ 麻黄」这类必须区分的药。
+- 给药途径标记：`EXTERNAL_MARKERS` / `INTERNAL_MARKERS`。
+- 改完同步更新 `references/personal-profile.md` 的覆盖范围表，并跑测试。
 
 ## 发布到 SkillHub
 

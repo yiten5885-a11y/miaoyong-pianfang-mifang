@@ -60,6 +60,30 @@ git clone https://github.com/yiten5885-a11y/miaoyong-pianfang-mifang \
 
 此外，孕期、备孕、哺乳、婴幼儿、糖尿病、高血压、肝病、肾病、长期服药、抗凝药等情况一律先问医师或药师。
 
+### 个人用药档案闸门（v1.1）
+
+前三层回答的是「这道方本身危不危险」。档案闸门回答的是**「这道方对你危不危险」**。
+
+建一次档案（慢性病、长期在吃的西药、过敏史、孕期等），之后每轮回答自动过闸：
+
+```bash
+python3 scripts/profile.py \
+  --conditions "高血压" --medications "氨氯地平" --allergies "蜂蜜"
+```
+
+- **换方而不是静默跳过。** 主方与登记情况冲突时自动改用下一道未冲突的方，并说明为什么换。
+- **全部冲突就不给方。** 这一节所有候选都被拦下时，只列出原因，让你带着去问药师。
+- **外用方单独判定。** 原书把内服方和外用方混在一节里，`麻黄外用` 是贴穴位的膏药而不是汤剂，按同一标准处理会两头都错。
+- **识别不了的药明确说「未评估」**，不猜。
+
+档案存在 `~/.miaoyong-pianfang-mifang/profile.json`（权限 `0600`），**只存本机**——本包所有脚本都不发网络请求。一条命令清除：
+
+```bash
+python3 scripts/profile.py --clear
+```
+
+细节见 [`references/personal-profile.md`](references/personal-profile.md)。
+
 ## 快速开始
 
 ```bash
@@ -74,6 +98,11 @@ python3 scripts/format_answer.py --query "便血" --fields title,book_page
 
 # 统计
 python3 scripts/search.py --stats
+
+# 个人用药档案
+python3 scripts/profile.py --show
+python3 scripts/profile.py --conditions "高血压" --medications "氨氯地平"
+python3 scripts/profile.py --clear
 
 # 自检
 python3 -m unittest discover -s tests -p 'test_*.py'
