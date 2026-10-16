@@ -65,6 +65,7 @@ python3 -m unittest discover -s tests -p 'test_*.py'
 | 三字段齐全 | 2369 |
 | 口语映射 | 232/232 病症，546 条短语 |
 | 口语回归命中 | ≥22/25 |
+| 清洗后药材名 | 896 个（raw 1135） |
 
 ## 常用自检
 
@@ -75,6 +76,25 @@ python3 scripts/search.py --query "咳嗽痰多" --limit 3
 python3 scripts/improve.py --issue "老便秘，三四天一次"
 python3 scripts/format_answer.py --query "便血" --fields title,book_page
 ```
+
+## 修改可信度分层
+
+- 打分维度：`scripts/trust.py` 的 `trust_score`（方名 +1、证型 +2、剂量 +1、
+  三字段 +1）。改维度后必须跑 `python3 -m unittest tests.test_trust`——
+  它守住五档分布与容差，某档漂移超 25% 会失败。
+- 分档描述：`LEVELS` 字典。描述面向用户，**不得**出现分数数字。
+- 候选池大小：`improve.py` 的 `pool_size`（当前 max(limit*3, 9)）。太小则
+  记载最全的方进不了池子，太大则闸门开销上升。
+
+## 修改药材清洗
+
+- 规则在 `scripts/herbs.py`：剥「各」尾缀（全书系统性 OCR 现象）、剔除
+  纯泛称（调料/味精/湿淀粉/作料/配料/佐料）、丢弃长度<2 的名字。
+- **生/熟/干不在制法前缀表里**——「生姜」「干姜」「熟地」「生大黄」都是
+  完整药名，无脑剥会削成单字丢弃。只有炙/炒/煅/鲜这类明确加工标记才剥。
+- 白糖/黄酒/蜂蜜/葱白**不是**噪声，是药膳方真实辅料，不得加入剔除表。
+- 新增噪声词后跑 `python3 -m unittest tests.test_herbs` 与
+  `noise_report()` 核对清洗效果。
 
 ## 修改检索
 
@@ -99,6 +119,12 @@ python3 scripts/format_answer.py --query "便血" --fields title,book_page
 
 ## 版本
 
+- `1.3.0`：来源可信度分层 + 药材名清洗。新增 `scripts/trust.py`（按原书字段
+  完整度打 0-5 分，五档分布 {1:16, 2:620, 3:1155, 4:104, 5:500}）与
+  `scripts/herbs.py`（剥 OCR「各」字粘连 474 处、剔除纯泛称，清洗后 896 个
+  药材名）；候选池放大到 max(limit*3, 9)，按完整度优先排序后截断，防止
+  记载最全的方进不了 limit 之内的池子；新增 `tests/test_trust.py`（22 项）
+  与 `tests/test_herbs.py`（21 项）。清洗只在解析层，不改原文转录。
 - `1.2.0`：检索可信度。取消 `run_search` 的静默兜底，新增 `no_match` 模式与候选建议；
   口语映射扩到 232/232 病症（546 条，0 死映射），加模糊匹配与儿科语境加权；
   修复 6 个整节丢失的病症（字号阈值 0.024 → 0.023）与 4.1% 的章节错标；

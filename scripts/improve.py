@@ -38,6 +38,9 @@ from safety import (  # noqa: E402
     worst_level,
 )
 from search import load_records, run_search  # noqa: E402
+from trust import (  # noqa: E402
+    section_trust_overview, trust_detail, trust_score,
+)
 
 # Ingredients that are normally bought in a pharmacy / Chinese medicine shop.
 # Checked before FOOD_WORDS because several herb names contain a food-like
@@ -208,7 +211,12 @@ def compose(issue: str, records: list[dict], limit: int = 3,
             "results": [],
         }
 
-    payload = run_search(issue, records, limit=limit)
+    # 候选池要大于最终展示数：信任排序只能在检索返回的候选里挑，
+    # 池子只有 limit 道时，小节里记载最全的方可能根本进不来
+    # （「咳嗽」一节 20 方中 9 道记载最全，limit=3 的池子里未必有）。
+    # 取三倍（至少 9 道），闸门与信任排序都在这池里进行，最后再截断。
+    pool_size = max(limit * 3, 9)
+    payload = run_search(issue, records, limit=pool_size)
     results = payload["results"]
     if not results:
         return {
@@ -220,6 +228,17 @@ def compose(issue: str, records: list[dict], limit: int = 3,
             "available_conditions": payload["available_conditions"],
             "results": [],
         }
+
+    # ---- trust ordering -----------------------------------------------------
+    # 原书各条的记载完整度差别很大。信息最全的方子优先呈现——用户拿到
+    # 「有方名、证型、剂量、做法、效用都齐」的那道，比拿到一句话的强。
+    # 排序在闸门之前进行，安全判定不受影响（闸门逻辑只看内容不看顺序）。
+    results = [
+        item for _, item in sorted(
+            enumerate(results),
+            key=lambda pair: (-trust_score(pair[1]), pair[0]),
+        )
+    ]
 
     # ---- personal gate -----------------------------------------------------
     # Every candidate is run past the user's own profile before one is picked.
@@ -286,9 +305,12 @@ def compose(issue: str, records: list[dict], limit: int = 3,
         "issue": issue,
         "matched_conditions": payload["matched_conditions"],
         "profile": summary_payload(profile),
+        "source_overview": section_trust_overview(
+            [r for r in records if r.get("condition") in payload["matched_conditions"]]
+        ),
         "profile_gate": {
             "switched": bool(blocked),
-            "switched_from": [g["item"]["title"] for g in blocked],
+            "switched_from": [display_title(g["item"]) for g in blocked],
             "primary_interactions": chosen["hits"],
             "blocked": [
                 {
@@ -315,22 +337,24 @@ def compose(issue: str, records: list[dict], limit: int = 3,
             "extra": primary.get("extra", []),
             "shopping_list": build_shopping_list(primary["ingredients"] or ""),
             "steps": build_steps(primary["usage"] or ""),
+            "trust": trust_detail(primary),
             "source_refs": primary["source_refs"],
         },
         "alternatives": [
             {
                 "id": g["item"]["id"],
                 "condition": g["item"]["condition"],
-                "title": g["item"]["title"],
+                "title": display_title(g["item"]),
                 "name": g["item"]["name"],
                 "original_ingredients": g["item"]["ingredients"],
                 "original_usage": g["item"]["usage"],
                 "original_effect": g["item"]["effect"],
                 "risk_level": g["item"]["risk_level"],
                 "interactions": g["hits"],
+                "trust": trust_detail(g["item"]),
                 "source_refs": g["item"]["source_refs"],
             }
-            for g in allowed[1:]
+            for g in allowed[1:limit]
         ],
         "safety": {
             "tier": tier,
@@ -353,6 +377,9 @@ def compose(issue: str, records: list[dict], limit: int = 3,
         },
         "followups": [
             f"要不要看「{primary['condition']}」这一节的其他方子？",
+            f"这一节共 {len([r for r in records if r.get('condition') == primary['condition']])} 道方，"
+            f"其中原书记载最全的有 {sum(1 for r in records if r.get('condition') == primary['condition'] and trust_score(r) >= 4)} 道，"
+            "要不要我把这几道单独列出来？",
             "要不要我把采购清单按菜市场和药店分开列出来？",
             "要不要我把原书这页的原文和页码给你核对？",
         ],
