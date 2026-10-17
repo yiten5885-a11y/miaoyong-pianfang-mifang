@@ -30,8 +30,10 @@ from pathlib import Path
 
 SKILL_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SKILL_ROOT / "scripts"))
+from herb_id import herb_id_notes  # noqa: E402
 from interactions import evaluate as evaluate_interactions  # noqa: E402
 from interactions import worst_level as interaction_worst  # noqa: E402
+from pediatric import pediatric_gate as compute_pediatric_gate  # noqa: E402
 from profile import load_profile, summary_payload  # noqa: E402
 from safety import (  # noqa: E402
     RED_FLAGS, scan_emergency, scan_herbs, scan_red_flags, scan_serious,
@@ -305,6 +307,7 @@ def compose(issue: str, records: list[dict], limit: int = 3,
         "issue": issue,
         "matched_conditions": payload["matched_conditions"],
         "profile": summary_payload(profile),
+        "pediatric_gate": compute_pediatric_gate(issue, primary, records),
         "source_overview": section_trust_overview(
             [r for r in records if r.get("condition") in payload["matched_conditions"]]
         ),
@@ -338,6 +341,7 @@ def compose(issue: str, records: list[dict], limit: int = 3,
             "shopping_list": build_shopping_list(primary["ingredients"] or ""),
             "steps": build_steps(primary["usage"] or ""),
             "trust": trust_detail(primary),
+            "herb_id_notes": herb_id_notes(primary["ingredients"] or ""),
             "source_refs": primary["source_refs"],
         },
         "alternatives": [

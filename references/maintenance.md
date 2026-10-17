@@ -96,6 +96,24 @@ python3 scripts/format_answer.py --query "便血" --fields title,book_page
 - 新增噪声词后跑 `python3 -m unittest tests.test_herbs` 与
   `noise_report()` 核对清洗效果。
 
+## 修改儿童闸门
+
+- 儿童语境标记：`scripts/pediatric.py` 的 `CHILD_MARKERS`（与 search.py
+  的 CHILD_MARKERS 保持一致，儿科加权也用）。
+- 症状族→儿科小节映射：`SYMPTOM_FAMILY_TO_PEDIATRIC`。新增儿科小节时
+  同步更新，并跑 `tests/test_pediatric.py` 的
+  `test_common_parent_phrasings_route_to_pediatrics`。
+- **红线**：闸门只警示，不折算剂量。任何版本都不得引入「按成人剂量
+  乘以系数」的逻辑。
+
+## 修改辨识要点
+
+- 易混对表：`scripts/herb_id.py` 的 `CONFUSED_HERBS`。新增条目必须
+  在语料中真实出现（测试会校验）。
+- 泛称与具体名去重：关键词按长度降序匹配（川贝母先于贝母），
+  泛称条目在具体名命中后跳过。
+- 措辞红线：客观描述，禁止「假的」「伪品」判定式表述（测试会校验）。
+
 ## 修改检索
 
 - 口语映射：`scripts/search.py` 的 `SYNONYMS`。新增后必须跑
@@ -119,6 +137,13 @@ python3 scripts/format_answer.py --query "便血" --fields title,book_page
 
 ## 版本
 
+- `1.4.0`：儿童剂量安全层 + 易混药材辨识。新增 `scripts/pediatric.py`：
+  识别儿童语境（孩子/宝宝/婴儿/几岁），命中小节属成人章节时输出闸门
+  （警示成人剂量不能套儿童、指引儿科小节或就医，方照给不折算）；
+  补齐 20+ 条儿科口语映射（咳嗽→小儿咳喘、拉肚子→小儿泄泻等）。
+  新增 `scripts/herb_id.py` + `references/herb-id.md`：12 个易混药材
+  （川贝母/浙贝母、牛膝/川牛膝、茯苓/猪苓…）辨识要点，覆盖 192 条记录。
+  新增 `tests/test_pediatric.py`（14 项）、`tests/test_herb_id.py`（12 项）。
 - `1.3.0`：来源可信度分层 + 药材名清洗。新增 `scripts/trust.py`（按原书字段
   完整度打 0-5 分，五档分布 {1:16, 2:620, 3:1155, 4:104, 5:500}）与
   `scripts/herbs.py`（剥 OCR「各」字粘连 474 处、剔除纯泛称，清洗后 896 个
