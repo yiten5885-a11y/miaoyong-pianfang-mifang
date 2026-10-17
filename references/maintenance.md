@@ -96,6 +96,17 @@ python3 scripts/format_answer.py --query "便血" --fields title,book_page
 - 新增噪声词后跑 `python3 -m unittest tests.test_herbs` 与
   `noise_report()` 核对清洗效果。
 
+## 修改多症状编排
+
+- 连接词表：`search.py` 的 `MULTI_CONNECTOR_RE`。**标点不是切分符**——
+  描述句（「最近老咳嗽，痰多」）只讲一个症状，切了会引入噪声。
+- 冲突三类：`orchestrate.py` 的 `detect_conflicts`。食材辅料
+  （白糖/粳米/蜂蜜等）的重复不算冲突；酒精检测覆盖 ingredients+usage
+  （原书把送服用酒写在制用法里）。
+- 寒热词表是词组不是单字：「散寒」是温性方，单字「寒」会误判。
+  「解毒」也不在表内——「发表解毒」常见于辛温解表剂自述。
+- 冲突宁可漏报不可误报：误报会让用户困惑（「两个都治风寒为何相冲」）。
+
 ## 修改儿童闸门
 
 - 儿童语境标记：`scripts/pediatric.py` 的 `CHILD_MARKERS`（与 search.py
@@ -137,6 +148,16 @@ python3 scripts/format_answer.py --query "便血" --fields title,book_page
 
 ## 版本
 
+- `1.5.0`：多症状编排。检索层新增连接词切分（还/又/同时/伴有…，标点
+  不切——「最近老咳嗽，痰多」是描述不是两症）：分段求解后合并，
+  合法多症状命中 10/10（原 2/10，根因是 `best*0.8` 相对阈值加短语
+  长度权重，第二症状被过滤）；单症状行为零变化。新增
+  `scripts/orchestrate.py`：按病症分节各配高完整度方 + 三类冲突检测
+  （重复药材≥2味排除食材辅料 / 用酒叠加 / 寒热相冲），冲突照列不
+  静默丢方。冲突词表按真实语料校准（散寒64/温中59 vs 清热576/
+  凉血125），单字匹配误报率高已禁用（「散寒」曾被误判为寒性）。
+  新增 `tests/test_orchestrate.py`（22 项）。`improve.py` 多症状命中
+  时返回 `mode=multi`，安全层（急症/档案/儿科）全部保留。
 - `1.4.0`：儿童剂量安全层 + 易混药材辨识。新增 `scripts/pediatric.py`：
   识别儿童语境（孩子/宝宝/婴儿/几岁），命中小节属成人章节时输出闸门
   （警示成人剂量不能套儿童、指引儿科小节或就医，方照给不折算）；

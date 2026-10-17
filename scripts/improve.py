@@ -33,6 +33,7 @@ sys.path.insert(0, str(SKILL_ROOT / "scripts"))
 from herb_id import herb_id_notes  # noqa: E402
 from interactions import evaluate as evaluate_interactions  # noqa: E402
 from interactions import worst_level as interaction_worst  # noqa: E402
+from orchestrate import orchestrate_multi  # noqa: E402
 from pediatric import pediatric_gate as compute_pediatric_gate  # noqa: E402
 from profile import load_profile, summary_payload  # noqa: E402
 from safety import (  # noqa: E402
@@ -220,6 +221,7 @@ def compose(issue: str, records: list[dict], limit: int = 3,
     pool_size = max(limit * 3, 9)
     payload = run_search(issue, records, limit=pool_size)
     results = payload["results"]
+    matched_conditions = payload["matched_conditions"]
     if not results:
         return {
             "mode": "no_match",
@@ -230,6 +232,41 @@ def compose(issue: str, records: list[dict], limit: int = 3,
             "available_conditions": payload["available_conditions"],
             "results": [],
         }
+
+    # ---- multi-symptom orchestration ---------------------------------------
+    # 查询显式点名多个症状且都命中原书小节时，走编排：每节各配方案 +
+    # 冲突检测。单症状查询（len < 2）走下面的原有路径，行为不变。
+    if len(matched_conditions) >= 2:
+        multi = orchestrate_multi(issue, records, matched_conditions)
+        # 每道代表方仍过个人档案闸门——多症状不豁免安全层。
+        allergies = [a for a in (profile.get("allergies") or []) if a]
+        for section in multi["sections"]:
+            for formula in section["formulas"]:
+                text = f"{formula.get('ingredients') or ''} " \
+                       f"{formula.get('usage') or ''}"
+                hits = evaluate_interactions(
+                    text, profile, usage_text=formula.get("usage") or "")
+                allergy_hits = [a for a in allergies if a in text]
+                if allergy_hits:
+                    hits = [{
+                        "id": "allergy",
+                        "level": "block",
+                        "herbs": allergy_hits,
+                        "trigger_kind": "allergies",
+                        "trigger": allergy_hits[0],
+                        "reason": f"原料中含有你登记的过敏原："
+                                  f"{'、'.join(allergy_hits)}。",
+                        "action": "换一道不含该原料的方。",
+                    }] + hits
+                formula["interactions"] = hits
+                formula["blocked"] = interaction_worst(hits) == "block"
+        multi["mode"] = "multi"
+        multi["issue"] = issue
+        multi["matched_conditions"] = matched_conditions
+        multi["profile"] = summary_payload(profile)
+        multi["pediatric_gate"] = compute_pediatric_gate(
+            issue, multi["sections"][0]["formulas"][0], records)
+        return multi
 
     # ---- trust ordering -----------------------------------------------------
     # 原书各条的记载完整度差别很大。信息最全的方子优先呈现——用户拿到

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 import unicodedata
 from pathlib import Path
@@ -463,6 +464,54 @@ def resolve_conditions(query: str, conditions: list[str]) -> list[str]:
     return [condition for condition, value in ranked if value >= best * 0.8]
 
 
+# Explicit "and also" connectors. Punctuation is deliberately NOT a splitter:
+# "最近老咳嗽，痰多" describes one symptom, while "感冒还嗓子疼" names two.
+# The trailing + lets stacked connectors ("另外还有") count as one split.
+MULTI_CONNECTOR_RE = re.compile(
+    r"(?:(?:还有|再有|还|又|同时|并且|而且|加上|外加|以及|另外|"
+    r"伴有|伴随))+"
+)
+
+
+def split_symptoms(query: str) -> list[str]:
+    """Split a query into symptom segments when it explicitly names several.
+
+    Returns a single-element list for ordinary one-symptom queries, so callers
+    can treat both cases uniformly.
+    """
+    parts = [part.strip() for part in MULTI_CONNECTOR_RE.split(query)
+             if part.strip()]
+    return [part for part in parts if len(part) >= 2] or [query]
+
+
+def resolve_conditions_multi(query: str, conditions: list[str]) -> list[str]:
+    """Resolve a possibly multi-symptom query onto several conditions.
+
+    The single-query scorer keeps only near-best candidates (`best * 0.8`),
+    which is right for one symptom but silently drops the second one in
+    "感冒还嗓子疼" — the phrase-length weight makes 感冒 (2 chars) lose to
+    嗓子疼 (3 chars). Here each named symptom is resolved on its own and the
+    results merged, so a user who reports two problems gets both sections.
+
+    Ordinary queries keep the exact single-symptom behaviour: with no
+    connector the "split" is the whole string and nothing changes.
+    """
+    segments = split_symptoms(query)
+    if len(segments) <= 1:
+        return resolve_conditions(query, conditions)
+
+    hits: list[str] = []
+    for segment in segments:
+        for condition in resolve_conditions(segment, conditions):
+            if condition not in hits:
+                hits.append(condition)
+    # Fall back to whole-query scoring when no segment resolved: the split may
+    # have cut a phrase that only makes sense together.
+    if not hits:
+        return resolve_conditions(query, conditions)
+    return hits
+
+
 def annotate(record: dict) -> dict:
     herbs = scan_herbs(f"{record.get('ingredients', '')} {record.get('usage', '')}")
     return {
@@ -535,7 +584,8 @@ def run_search(query: str, records: list[dict], limit: int = 5,
                chapter: str | None = None,
                condition: str | None = None) -> dict:
     conditions = sorted({r.get("condition", "") for r in records if r.get("condition")})
-    matched_conditions = [condition] if condition else resolve_conditions(query, conditions)
+    matched_conditions = ([condition] if condition
+                          else resolve_conditions_multi(query, conditions))
 
     pool = records
     if chapter:
