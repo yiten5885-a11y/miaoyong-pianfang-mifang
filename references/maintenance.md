@@ -96,6 +96,20 @@ python3 scripts/format_answer.py --query "便血" --fields title,book_page
 - 新增噪声词后跑 `python3 -m unittest tests.test_herbs` 与
   `noise_report()` 核对清洗效果。
 
+## 修改辨证收敛问诊
+
+- 证型归一化：`patterns.py` 的 normalize_pattern。**顺序**：剥前缀 →
+  剥连接字（贪心匹配会把「与肾阳不足」吃进证型名）→ OCR 修复（原始
+  错字键）→ 繁简归一 → 截连证型（「气滞型和血瘀型」取第一段，残留
+  的「型」字要再剥）→ 同义归并。
+- OCR 修复表：`OCR_FIXES`，只收实测出现的错字（察湿攪滞/手气灣/手气帶）。
+- 繁简表：`TRADITIONAL_TO_SIMPLIFIED`，只收实际出现的繁体字（虛/虧等）。
+- 收敛算法：`inquire.py` 的 `_score_answer`（字符二元组重叠 + 证型名
+  双倍权重）。跨簇打平阈值 `AMBIGUITY_RATIO=0.6`，宁打平不硬选。
+- **红线**：输出只说「描述与原书某型记述更接近」，不说「你是某型」。
+  问题必须来自原书「症见」原文，不自拟辨证标准。测试
+  `test_no_diagnosis_wording` 守着这条。
+
 ## 修改多症状编排
 
 - 连接词表：`search.py` 的 `MULTI_CONNECTOR_RE`。**标点不是切分符**——
@@ -148,6 +162,14 @@ python3 scripts/format_answer.py --query "便血" --fields title,book_page
 
 ## 版本
 
+- `2.0.0`：辨证收敛问诊。新增 `scripts/patterns.py`（证型抽取：前缀剥离、
+  OCR 错字修复**先于**繁简归一——攪/灣 是错字不是繁体，顺序错了修复键
+  就匹配不上；同义归并只合并最有把握的）与 `scripts/inquire.py`（两轮
+  交互：第一轮出原书「症见」分类让用户挑，第二轮字符重叠匹配收敛）。
+  46 个病症可问诊（34 个 ≥3 证型，痛经 4 型/头痛 8 型）。归一化修复的
+  碎片化问题：痛经曾拆成 6 个碎片簇（察湿攪滞/手气灣/手气帶/气血虛弱
+  等 OCR 变体），归一并后为 4 个干净证型。收敛不出结果（对不上/跨簇
+  打平）明确降级不硬归类。新增 `tests/test_patterns.py`（23 项）。
 - `1.5.0`：多症状编排。检索层新增连接词切分（还/又/同时/伴有…，标点
   不切——「最近老咳嗽，痰多」是描述不是两症）：分段求解后合并，
   合法多症状命中 10/10（原 2/10，根因是 `best*0.8` 相对阈值加短语
